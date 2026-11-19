@@ -1,40 +1,49 @@
-// Main application logic, user interactions, interactive canvas panning, and export controls.
+// App shell: magazine grid, location badges, typography, export.
 
-import { renderMultiPanelLayout, getPanelAtPoint } from './panels.js';
-import { applyFullColorGrading } from './grade.js';
-import { buildCaptionLayer } from './caption.js';
-import { renderHighResCover, exportToPNG, EXPORT_PRESETS } from './export.js';
+import {
+  LAYOUT_PRESETS,
+  getPanelAtPoint,
+  getPanelFocusDefaults,
+  getDefaultLocation,
+  PANEL_GRADE_BY_INDEX,
+} from './panels.js';
+import { GRADE_PRESETS } from './grade.js';
+import {
+  buildMultiPanelComposition,
+  renderHighResCover,
+  exportCanvasToPNG,
+  exportAllThreeSizes,
+  EXPORT_PRESETS,
+} from './export.js';
 import { runShot } from './shots.js';
 
-// Application state
 export const state = {
-  ratio: 'landscape', // 'landscape' | 'portrait' | 'square'
-  layout: 'diagonal3', // 'diagonal3' | 'diagonal2' | 'triptych' | 'duohorizon'
-  caption: 'VICE CITY',
-  subtitle: 'LEONIDA DREAMS • 2026',
+  ratio: 'landscape',
+  layout: 'comic',
+  gradePreset: 'vice',
+  caption: 'NEON COAST',
+  subtitle: 'Six nights in paradise',
+  year: '2026',
+  vol: '06',
+  finePrint: '· A VICE STUDIO PICTURE · SHOT ON YOUR OWN CAMERA ·',
   font: 'Anton',
-  fillStyle: 'sunset',
-  captionPosition: 'bottom',
-  gradeIntensity: 1.0,
-  grainAmount: 0.16,
-  vignetteStrength: 0.55,
+  gradeIntensity: 1.15,
+  grainAmount: 0.14,
+  vignetteStrength: 0.45,
   activePanel: 0,
   defaultImage: null,
-  panels: {
-    0: { zoom: 1.0, panX: 0, panY: 0, flipH: false, image: null },
-    1: { zoom: 1.0, panX: 0, panY: 0, flipH: false, image: null },
-    2: { zoom: 1.0, panX: 0, panY: 0, flipH: false, image: null },
-  },
+  panels: {},
 };
 
-// DOM references
 const canvas = document.getElementById('cover');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
 const titleInput = document.getElementById('caption');
 const subtitleInput = document.getElementById('subtitle');
+const yearInput = document.getElementById('year-input');
+const volInput = document.getElementById('vol-input');
+const locNameInput = document.getElementById('loc-name');
+const locStampInput = document.getElementById('loc-stamp');
 const fontSelect = document.getElementById('font-select');
-const fillSelect = document.getElementById('fill-select');
-const layoutSelect = document.getElementById('layout-select');
 const ratioSelect = document.getElementById('ratio-select');
 const activePanelSelect = document.getElementById('active-panel');
 const gradeSlider = document.getElementById('grade-slider');
@@ -43,93 +52,156 @@ const vignetteSlider = document.getElementById('vignette-slider');
 const zoomSlider = document.getElementById('zoom-slider');
 const flipBtn = document.getElementById('flip-btn');
 const statusEl = document.getElementById('status');
+const layoutThumbs = document.getElementById('layout-thumbs');
+const gradeThumbs = document.getElementById('grade-thumbs');
 
-/**
- * Loads an image from a URL or object URL.
- */
 export function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = reject;
     img.src = url;
   });
 }
 
-/**
- * Resizes the preview canvas to match the active aspect ratio preset.
- */
 export function resizeCanvasForRatio() {
   const preset = EXPORT_PRESETS[state.ratio] || EXPORT_PRESETS.landscape;
   canvas.width = preset.width;
   canvas.height = preset.height;
 }
 
-/**
- * Sets explicit dimensions on canvas (used in headless screenshot capture).
- */
 export function resizeCanvas(w, h) {
   canvas.width = w;
   canvas.height = h;
 }
 
-/**
- * Redraws the complete canvas scene.
- */
 export function redraw() {
-  const w = canvas.width;
-  const h = canvas.height;
-
-  // Background
-  ctx.fillStyle = '#0f051c';
-  ctx.fillRect(0, 0, w, h);
-
-  // Multi-panel layout
-  renderMultiPanelLayout(ctx, state, w, h);
-
-  // Vice City sunset grading, glow, grain, and vignette
-  applyFullColorGrading(ctx, w, h, {
-    gradeIntensity: state.gradeIntensity,
-    grainAmount: state.grainAmount,
-    vignetteStrength: state.vignetteStrength,
-  });
-
-  // Display caption layer
-  buildCaptionLayer(ctx, {
-    title: state.caption,
-    subtitle: state.subtitle,
-    font: state.font,
-    fillStyle: state.fillStyle,
-    position: state.captionPosition,
-  }, w, h);
+  buildMultiPanelComposition(ctx, state, canvas.width, canvas.height);
 }
 
-/**
- * Synchronizes DOM form controls with the internal state object.
- */
+export function ensurePanel(id) {
+  const focus = getPanelFocusDefaults(id);
+  const loc = getDefaultLocation(id);
+  if (!state.panels[id]) {
+    state.panels[id] = {
+      zoom: 1.15,
+      panX: 0,
+      panY: 0,
+      flipH: false,
+      image: null,
+      focusX: focus.focusX,
+      focusY: focus.focusY,
+      location: loc.name,
+      stamp: loc.stamp,
+      grade: PANEL_GRADE_BY_INDEX[id] || 'vice',
+    };
+  }
+  const p = state.panels[id];
+  if (p.focusX == null) p.focusX = focus.focusX;
+  if (p.focusY == null) p.focusY = focus.focusY;
+  if (!p.location) p.location = loc.name;
+  if (!p.stamp) p.stamp = loc.stamp;
+  if (!p.grade) p.grade = PANEL_GRADE_BY_INDEX[id] || 'vice';
+  return p;
+}
+
+function assignPanelImage(id, image, extra = {}) {
+  const focus = getPanelFocusDefaults(id);
+  const loc = getDefaultLocation(id);
+  state.panels[id] = {
+    image,
+    zoom: extra.zoom ?? 1.15,
+    panX: extra.panX ?? 0,
+    panY: extra.panY ?? 0,
+    flipH: !!extra.flipH,
+    focusX: focus.focusX,
+    focusY: focus.focusY,
+    location: extra.location || loc.name,
+    stamp: extra.stamp || loc.stamp,
+    grade: PANEL_GRADE_BY_INDEX[id] || 'vice',
+  };
+  return state.panels[id];
+}
+
+function fillAllPanels(images) {
+  for (let i = 0; i < 7; i++) {
+    assignPanelImage(i, images[i % images.length], {
+      zoom: 1.1 + (i % 3) * 0.08,
+      flipH: i % 3 === 1,
+    });
+  }
+}
+
 export function syncUI() {
   if (titleInput) titleInput.value = state.caption;
   if (subtitleInput) subtitleInput.value = state.subtitle;
+  if (yearInput) yearInput.value = state.year;
+  if (volInput) volInput.value = state.vol;
   if (fontSelect) fontSelect.value = state.font;
-  if (fillSelect) fillSelect.value = state.fillStyle;
-  if (layoutSelect) layoutSelect.value = state.layout;
   if (ratioSelect) ratioSelect.value = state.ratio;
   if (activePanelSelect) activePanelSelect.value = String(state.activePanel);
   if (gradeSlider) gradeSlider.value = String(state.gradeIntensity);
   if (grainSlider) grainSlider.value = String(state.grainAmount);
   if (vignetteSlider) vignetteSlider.value = String(state.vignetteStrength);
+  const panel = ensurePanel(state.activePanel);
+  if (zoomSlider) zoomSlider.value = String(panel.zoom || 1);
+  if (locNameInput) locNameInput.value = panel.location || '';
+  if (locStampInput) locStampInput.value = panel.stamp || '';
 
-  const panelData = state.panels[state.activePanel] || {};
-  if (zoomSlider) zoomSlider.value = String(panelData.zoom || 1.0);
+  layoutThumbs?.querySelectorAll('.thumb').forEach((el) => {
+    el.classList.toggle('active', el.dataset.layout === state.layout);
+  });
+  gradeThumbs?.querySelectorAll('.thumb').forEach((el) => {
+    el.classList.toggle('active', el.dataset.grade === state.gradePreset);
+  });
 }
 
-// Interactive Canvas Pan & Zoom Handling
+function buildLayoutThumbs() {
+  if (!layoutThumbs) return;
+  layoutThumbs.innerHTML = '';
+  for (const preset of LAYOUT_PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'thumb' + (preset.id === state.layout ? ' active' : '');
+    btn.dataset.layout = preset.id;
+    btn.setAttribute('role', 'option');
+    btn.innerHTML = `<span class="thumb-label">${preset.label}</span><span class="thumb-hint">${preset.hint}</span>`;
+    btn.addEventListener('click', () => {
+      state.layout = preset.id;
+      syncUI();
+      redraw();
+    });
+    layoutThumbs.appendChild(btn);
+  }
+}
+
+function buildGradeThumbs() {
+  if (!gradeThumbs) return;
+  gradeThumbs.innerHTML = '';
+  for (const preset of GRADE_PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'thumb grade-' + preset.id + (preset.id === state.gradePreset ? ' active' : '');
+    btn.dataset.grade = preset.id;
+    btn.setAttribute('role', 'option');
+    btn.innerHTML = `<span class="thumb-label">${preset.label}</span><span class="thumb-hint">${preset.hint}</span>`;
+    btn.addEventListener('click', () => {
+      state.gradePreset = preset.id;
+      // Override active panel grade when user picks a preset
+      ensurePanel(state.activePanel).grade = preset.id;
+      syncUI();
+      redraw();
+    });
+    gradeThumbs.appendChild(btn);
+  }
+}
+
 let isDragging = false;
 let dragStartX = 0;
 let dragStartY = 0;
 let initialPanX = 0;
 let initialPanY = 0;
+let lastClickTime = 0;
 
 function getCanvasCoordinates(e) {
   const rect = canvas.getBoundingClientRect();
@@ -143,154 +215,113 @@ function getCanvasCoordinates(e) {
   };
 }
 
-canvas.addEventListener('mousedown', (e) => {
-  const pos = getCanvasCoordinates(e);
-  const panelId = getPanelAtPoint(pos.x, pos.y, state.layout, canvas.width, canvas.height);
+function selectPanelAt(pos) {
+  const panelId = getPanelAtPoint(
+    pos.x,
+    pos.y,
+    state.layout,
+    canvas.width,
+    canvas.height,
+    canvas.height,
+    state.ratio
+  );
   state.activePanel = panelId;
   syncUI();
+  return ensurePanel(panelId);
+}
+
+canvas.addEventListener('mousedown', (e) => {
+  const pos = getCanvasCoordinates(e);
+  const panel = selectPanelAt(pos);
+  const now = Date.now();
+  // Double-click → inline edit location via prompt
+  if (now - lastClickTime < 350) {
+    const name = window.prompt('Location name', panel.location || 'OCEAN DRIVE');
+    if (name != null && name.trim()) {
+      panel.location = name.trim().toUpperCase();
+      const stamp = window.prompt('Timestamp / subtitle', panel.stamp || '');
+      if (stamp != null) panel.stamp = stamp.trim();
+      syncUI();
+      redraw();
+    }
+    lastClickTime = 0;
+    return;
+  }
+  lastClickTime = now;
 
   isDragging = true;
   dragStartX = pos.x;
   dragStartY = pos.y;
-  if (!state.panels[panelId]) {
-    state.panels[panelId] = { zoom: 1.0, panX: 0, panY: 0, flipH: false };
-  }
-  initialPanX = state.panels[panelId].panX || 0;
-  initialPanY = state.panels[panelId].panY || 0;
+  initialPanX = panel.panX || 0;
+  initialPanY = panel.panY || 0;
+  if (statusEl) statusEl.textContent = `Panel ${panel === state.panels[0] ? 'Hero' : state.activePanel + 1} — edit location in sidebar or double-click`;
 });
 
 window.addEventListener('mousemove', (e) => {
   if (!isDragging) return;
   const pos = getCanvasCoordinates(e);
-  const dx = (pos.x - dragStartX) / canvas.width;
-  const dy = (pos.y - dragStartY) / canvas.height;
-
-  const panel = state.panels[state.activePanel];
-  panel.panX = Math.max(-2, Math.min(2, initialPanX + dx * 2));
-  panel.panY = Math.max(-2, Math.min(2, initialPanY + dy * 2));
+  const panel = ensurePanel(state.activePanel);
+  panel.panX = Math.max(-2, Math.min(2, initialPanX + ((pos.x - dragStartX) / canvas.width) * 2));
+  panel.panY = Math.max(-2, Math.min(2, initialPanY + ((pos.y - dragStartY) / canvas.height) * 2));
   redraw();
 });
 
-window.addEventListener('mouseup', () => {
-  isDragging = false;
-});
+window.addEventListener('mouseup', () => { isDragging = false; });
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const pos = getCanvasCoordinates(e);
-  const panelId = getPanelAtPoint(pos.x, pos.y, state.layout, canvas.width, canvas.height);
-  state.activePanel = panelId;
+  const panel = selectPanelAt(pos);
+  panel.zoom = Math.max(0.5, Math.min(3.5, (panel.zoom || 1) + (e.deltaY < 0 ? 0.08 : -0.08)));
   syncUI();
-
-  if (!state.panels[panelId]) {
-    state.panels[panelId] = { zoom: 1.0, panX: 0, panY: 0, flipH: false };
-  }
-  const panel = state.panels[panelId];
-  const delta = e.deltaY < 0 ? 0.08 : -0.08;
-  panel.zoom = Math.max(0.5, Math.min(3.5, (panel.zoom || 1.0) + delta));
-  if (zoomSlider) zoomSlider.value = String(panel.zoom);
   redraw();
 }, { passive: false });
 
-// Form event listeners
-if (titleInput) {
-  titleInput.addEventListener('input', (e) => {
-    state.caption = e.target.value;
-    redraw();
-  });
-}
-if (subtitleInput) {
-  subtitleInput.addEventListener('input', (e) => {
-    state.subtitle = e.target.value;
-    redraw();
-  });
-}
-if (fontSelect) {
-  fontSelect.addEventListener('change', (e) => {
-    state.font = e.target.value;
-    redraw();
-  });
-}
-if (fillSelect) {
-  fillSelect.addEventListener('change', (e) => {
-    state.fillStyle = e.target.value;
-    redraw();
-  });
-}
-if (layoutSelect) {
-  layoutSelect.addEventListener('change', (e) => {
-    state.layout = e.target.value;
-    redraw();
-  });
-}
-if (ratioSelect) {
-  ratioSelect.addEventListener('change', (e) => {
-    state.ratio = e.target.value;
-    resizeCanvasForRatio();
-    redraw();
-  });
-}
-if (activePanelSelect) {
-  activePanelSelect.addEventListener('change', (e) => {
-    state.activePanel = Number(e.target.value);
-    syncUI();
-  });
-}
-if (zoomSlider) {
-  zoomSlider.addEventListener('input', (e) => {
-    if (!state.panels[state.activePanel]) {
-      state.panels[state.activePanel] = { zoom: 1.0, panX: 0, panY: 0, flipH: false };
-    }
-    state.panels[state.activePanel].zoom = Number(e.target.value);
-    redraw();
-  });
-}
-if (flipBtn) {
-  flipBtn.addEventListener('click', () => {
-    if (!state.panels[state.activePanel]) {
-      state.panels[state.activePanel] = { zoom: 1.0, panX: 0, panY: 0, flipH: false };
-    }
-    state.panels[state.activePanel].flipH = !state.panels[state.activePanel].flipH;
-    redraw();
-  });
-}
-if (gradeSlider) {
-  gradeSlider.addEventListener('input', (e) => {
-    state.gradeIntensity = Number(e.target.value);
-    redraw();
-  });
-}
-if (grainSlider) {
-  grainSlider.addEventListener('input', (e) => {
-    state.grainAmount = Number(e.target.value);
-    redraw();
-  });
-}
-if (vignetteSlider) {
-  vignetteSlider.addEventListener('input', (e) => {
-    state.vignetteStrength = Number(e.target.value);
-    redraw();
-  });
-}
+titleInput?.addEventListener('input', (e) => { state.caption = e.target.value; redraw(); });
+subtitleInput?.addEventListener('input', (e) => { state.subtitle = e.target.value; redraw(); });
+yearInput?.addEventListener('input', (e) => { state.year = e.target.value; redraw(); });
+volInput?.addEventListener('input', (e) => { state.vol = e.target.value; redraw(); });
+locNameInput?.addEventListener('input', (e) => {
+  ensurePanel(state.activePanel).location = e.target.value.toUpperCase();
+  redraw();
+});
+locStampInput?.addEventListener('input', (e) => {
+  ensurePanel(state.activePanel).stamp = e.target.value;
+  redraw();
+});
+fontSelect?.addEventListener('change', (e) => { state.font = e.target.value; redraw(); });
+ratioSelect?.addEventListener('change', (e) => {
+  state.ratio = e.target.value;
+  resizeCanvasForRatio();
+  redraw();
+});
+activePanelSelect?.addEventListener('change', (e) => {
+  state.activePanel = Number(e.target.value);
+  syncUI();
+});
+zoomSlider?.addEventListener('input', (e) => {
+  ensurePanel(state.activePanel).zoom = Number(e.target.value);
+  redraw();
+});
+flipBtn?.addEventListener('click', () => {
+  const p = ensurePanel(state.activePanel);
+  p.flipH = !p.flipH;
+  redraw();
+});
+gradeSlider?.addEventListener('input', (e) => { state.gradeIntensity = Number(e.target.value); redraw(); });
+grainSlider?.addEventListener('input', (e) => { state.grainAmount = Number(e.target.value); redraw(); });
+vignetteSlider?.addEventListener('input', (e) => { state.vignetteStrength = Number(e.target.value); redraw(); });
 
-// File uploads
-const mainPhotoInput = document.getElementById('photo');
-if (mainPhotoInput) {
-  mainPhotoInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const img = await loadImage(URL.createObjectURL(file));
-    state.defaultImage = img;
-    state.panels[state.activePanel] = {
-      ...(state.panels[state.activePanel] || {}),
-      image: img,
-    };
-    redraw();
-    if (statusEl) statusEl.textContent = `Loaded photo: ${file.name}`;
-  });
-}
+document.getElementById('photo')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const img = await loadImage(URL.createObjectURL(file));
+  state.defaultImage = img;
+  assignPanelImage(state.activePanel, img, { zoom: 1.2 });
+  redraw();
+  if (statusEl) statusEl.textContent = `Loaded ${file.name} → panel ${state.activePanel + 1}`;
+});
 
-// Sample buttons
 document.querySelectorAll('[data-sample]').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const sample = btn.getAttribute('data-sample');
@@ -300,67 +331,74 @@ document.querySelectorAll('[data-sample]').forEach((btn) => {
         loadImage('samples/boulevard.jpg'),
       ]);
       state.defaultImage = pier;
-      state.panels[0] = { image: pier, zoom: 1.1, panX: 0, panY: 0, flipH: false };
-      state.panels[1] = { image: blvd, zoom: 1.25, panX: 0.1, panY: 0.05, flipH: true };
-      state.panels[2] = { image: pier, zoom: 1.35, panX: -0.1, panY: 0.1, flipH: false };
+      fillAllPanels([pier, blvd]);
     } else {
       const img = await loadImage(`samples/${sample}.jpg`);
       state.defaultImage = img;
-      state.panels[state.activePanel] = {
-        ...(state.panels[state.activePanel] || {}),
-        image: img,
-      };
+      fillAllPanels([img]);
     }
     redraw();
-    if (statusEl) statusEl.textContent = `Loaded sample: ${sample}`;
+    if (statusEl) statusEl.textContent = `Sample: ${sample}`;
   });
 });
 
-// Export triggers for exact 1080x1080, 1080x1350, 1920x1080
 document.querySelectorAll('[data-export]').forEach((btn) => {
   btn.addEventListener('click', async () => {
     const key = btn.getAttribute('data-export');
-    const preset = EXPORT_PRESETS[key] || EXPORT_PRESETS.landscape;
-    if (statusEl) statusEl.textContent = `Exporting ${preset.width}×${preset.height} PNG...`;
-
-    const exportCanvas = renderHighResCover(state, preset.width, preset.height);
-    const filename = `gta6-cover-${preset.width}x${preset.height}.png`;
-    await exportToPNG(exportCanvas, filename);
-    if (statusEl) statusEl.textContent = `Saved ${filename}`;
+    const preset = EXPORT_PRESETS[key];
+    if (statusEl) statusEl.textContent = `Exporting ${preset.width}×${preset.height}…`;
+    const prev = state.ratio;
+    state.ratio = key;
+    const out = renderHighResCover(state, preset.width, preset.height);
+    state.ratio = prev;
+    await exportCanvasToPNG(out, `gta6-cover-${preset.width}x${preset.height}.png`);
+    if (statusEl) statusEl.textContent = `Saved ${preset.width}×${preset.height} PNG`;
   });
 });
 
-// Initial boot
-const app = {
-  state,
-  loadImage,
-  resizeCanvasForRatio,
-  resizeCanvas,
-  redraw,
-  syncUI,
-};
+document.getElementById('export-all')?.addEventListener('click', async () => {
+  if (statusEl) statusEl.textContent = 'Exporting all 3 sizes…';
+  await exportAllThreeSizes(state);
+  if (statusEl) statusEl.textContent = 'Downloaded 1920×1080, 1080×1350, 1080×1080';
+});
+
+export async function ensureFontsLoaded() {
+  if (document.fonts) {
+    try {
+      await Promise.all([
+        document.fonts.load('900 48px Anton'),
+        document.fonts.load('700 48px "Bebas Neue"'),
+        document.fonts.load('400 48px Pacifico'),
+      ]);
+      await document.fonts.ready;
+    } catch (err) {
+      console.warn('Font load error:', err);
+    }
+  }
+}
+
+const app = { state, loadImage, resizeCanvasForRatio, resizeCanvas, redraw, syncUI, fillAllPanels, assignPanelImage, ensurePanel, ensureFontsLoaded };
 
 async function init() {
-  // Load default starter sample
-  const pier = await loadImage('samples/pier.jpg');
-  const blvd = await loadImage('samples/boulevard.jpg');
+  buildLayoutThumbs();
+  buildGradeThumbs();
+
+  await ensureFontsLoaded();
+
+  const [pier, blvd] = await Promise.all([
+    loadImage('samples/pier.jpg'),
+    loadImage('samples/boulevard.jpg'),
+  ]);
   state.defaultImage = pier;
-  state.panels[0] = { image: pier, zoom: 1.1, panX: 0, panY: 0, flipH: false };
-  state.panels[1] = { image: blvd, zoom: 1.2, panX: 0.08, panY: 0.05, flipH: true };
-  state.panels[2] = { image: pier, zoom: 1.35, panX: -0.1, panY: 0.1, flipH: false };
+  fillAllPanels([pier, blvd]);
 
   resizeCanvasForRatio();
   syncUI();
 
-  // Handle screenshot queries if present
   const params = new URLSearchParams(window.location.search);
   const shot = params.get('shot');
-  if (shot) {
-    await runShot(shot, params, app);
-  } else {
-    redraw();
-  }
+  if (shot) await runShot(shot, params, app);
+  else redraw();
 }
 
-// Start application
 init().catch((err) => console.error('App init error:', err));

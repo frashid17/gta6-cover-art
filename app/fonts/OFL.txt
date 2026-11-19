@@ -1,6 +1,8 @@
 Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)
+Copyright 2011 The Bebas Neue Project Authors
+Copyright 2018 The Pacifico Project Authors (https://github.com/googlefonts/Pacifico)
 
-This Font Software is licensed under the SIL Open Font License, Version 1.1.
+ under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
 http://scripts.sil.org/OFL
 

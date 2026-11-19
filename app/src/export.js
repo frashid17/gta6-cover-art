@@ -1,56 +1,90 @@
-// High-resolution canvas rendering and PNG export pipeline for cover art.
+// High-res magazine-grid composition + PNG export for all three poster sizes.
 
-import { renderMultiPanelLayout } from './panels.js';
-import { applyFullColorGrading } from './grade.js';
-import { buildCaptionLayer } from './caption.js';
+import {
+  renderMagazineLayout,
+  strokeWhiteGrid,
+  createMagazineGrid,
+} from './panels.js';
+import { drawFilmGrain, drawVignette } from './grade.js';
+import {
+  drawTypographicPanel,
+  drawWantedBadge,
+  buildCaptionLayer,
+} from './caption.js';
 
-/**
- * Dimensions supported for GTA 6-style poster exports.
- */
 export const EXPORT_PRESETS = {
-  landscape: { name: '1920x1080 (Landscape Banner)', width: 1920, height: 1080 },
-  portrait: { name: '1080x1350 (Portrait Poster 4:5)', width: 1080, height: 1350 },
-  square: { name: '1080x1080 (Square Cover 1:1)', width: 1080, height: 1080 },
+  landscape: { name: '1920×1080', width: 1920, height: 1080 },
+  portrait: { name: '1080×1350', width: 1080, height: 1350 },
+  square: { name: '1080×1080', width: 1080, height: 1080 },
 };
 
 /**
- * Renders the complete artwork onto an offscreen canvas at the exact specified dimensions.
+ * Builds the full multi-panel poster onto a canvas context.
  */
+export function buildMultiPanelComposition(ctx, state, width, height) {
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, width, height);
+
+  const layout = state.layout || 'comic';
+  const isMagazine = layout === 'comic' || layout === 'magazine';
+
+  if (isMagazine) {
+    const { photoPanels, typePanel } = renderMagazineLayout(ctx, state, width, height);
+
+    // Typographic bottom panel (right column only)
+    if (typePanel) {
+      drawTypographicPanel(ctx, typePanel, {
+        title: state.caption || 'NEON COAST',
+        subtitle: state.subtitle || 'Six nights in paradise',
+        year: state.year || '2026',
+        vol: state.vol || '06',
+        font: state.font || 'Anton',
+        finePrint: state.finePrint || '· A VICE STUDIO PICTURE · SHOT ON YOUR OWN CAMERA ·',
+      });
+    }
+
+    // Light atmosphere (panels already graded)
+    drawFilmGrain(ctx, width, height, (state.grainAmount ?? 0.14) * 0.6);
+    drawVignette(ctx, width, height, (state.vignetteStrength ?? 0.45) * 0.55);
+
+    // 3px white grid lines (bake into PNG) — after overlays so borders stay white
+    strokeWhiteGrid(ctx, photoPanels, typePanel);
+
+    // WANTED badge on top of everything
+    drawWantedBadge(ctx, width, height);
+  } else {
+    const { photoPanels } = renderMagazineLayout(ctx, state, width, height);
+    drawFilmGrain(ctx, width, height, state.grainAmount ?? 0.14);
+    drawVignette(ctx, width, height, state.vignetteStrength ?? 0.5);
+    strokeWhiteGrid(ctx, photoPanels, null);
+    buildCaptionLayer(
+      ctx,
+      {
+        title: state.caption || 'NEON COAST',
+        subtitle: state.subtitle || 'Six nights in paradise',
+        font: state.font || 'Anton',
+      },
+      width,
+      height,
+      0
+    );
+    drawWantedBadge(ctx, width, height);
+  }
+}
+
 export function renderHighResCover(state, width, height) {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d');
-
-  // 1. Draw base dark backdrop
-  ctx.fillStyle = '#10051e';
-  ctx.fillRect(0, 0, width, height);
-
-  // 2. Render multi-panel compositing
-  renderMultiPanelLayout(ctx, state, width, height);
-
-  // 3. Apply Vice City sunset color grading, neon accents, film grain, and vignette
-  applyFullColorGrading(ctx, width, height, {
-    gradeIntensity: state.gradeIntensity ?? 1.0,
-    grainAmount: state.grainAmount ?? 0.16,
-    vignetteStrength: state.vignetteStrength ?? 0.55,
-  });
-
-  // 4. Render bold display caption typography
-  buildCaptionLayer(ctx, {
-    title: state.caption || 'VICE CITY',
-    subtitle: state.subtitle || '',
-    font: state.font || 'Anton',
-    fillStyle: state.fillStyle || 'sunset',
-    position: state.captionPosition || 'bottom',
-  }, width, height);
-
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  buildMultiPanelComposition(ctx, state, width, height);
   return canvas;
 }
 
-/**
- * Triggers a browser download of the canvas contents as a PNG file.
- */
+export function exportCanvasToPNG(canvas, filename = 'gta6-cover-art.png') {
+  return exportToPNG(canvas, filename);
+}
+
 export function exportToPNG(canvas, filename = 'gta6-cover-art.png') {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -65,8 +99,25 @@ export function exportToPNG(canvas, filename = 'gta6-cover-art.png') {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setTimeout(() => URL.revokeObjectURL(url), 800);
       resolve(filename);
     }, 'image/png');
   });
 }
+
+export async function exportAllThreeSizes(state) {
+  const results = [];
+  for (const key of ['landscape', 'portrait', 'square']) {
+    const preset = EXPORT_PRESETS[key];
+    const prev = state.ratio;
+    state.ratio = key;
+    const canvas = renderHighResCover(state, preset.width, preset.height);
+    state.ratio = prev;
+    const name = `gta6-cover-${preset.width}x${preset.height}.png`;
+    await exportToPNG(canvas, name);
+    results.push(name);
+  }
+  return results;
+}
+
+export { createMagazineGrid };

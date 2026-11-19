@@ -1,6 +1,6 @@
 [
-  { "name": "1-cover.jpg", "query": "?shot=cover&ratio=landscape&layout=diagonal3&caption=VICE%20CITY&sub=LEONIDA%20DREAMS%20%E2%80%A2%202026", "w": 1280, "h": 720 },
-  { "name": "2-editor.jpg", "query": "?shot=editor&ratio=landscape&layout=diagonal3&caption=VICE%20CITY&sub=LEONIDA%20DREAMS%20%E2%80%A2%202026", "w": 1280, "h": 720 },
-  { "name": "3-portrait.jpg", "query": "?shot=cover&ratio=portrait&layout=diagonal2&caption=LEONIDA%20SUNSET&sub=OCEAN%20DRIVE", "w": 800, "h": 1000 },
-  { "name": "4-square.jpg", "query": "?shot=cover&ratio=square&layout=triptych&caption=PORT%20VICE&sub=SUNSET%20HEIST", "w": 800, "h": 800 }
+  { "name": "1-cover.jpg", "query": "?shot=cover&layout=comic&caption=NEON%20COAST&sub=Six%20nights%20in%20paradise", "w": 1920, "h": 1080 },
+  { "name": "2-editor.jpg", "query": "?shot=editor&layout=comic&caption=NEON%20COAST&sub=Six%20nights%20in%20paradise", "w": 1280, "h": 720 },
+  { "name": "3-portrait.jpg", "query": "?shot=portrait&layout=comic&caption=NEON%20COAST&sub=Six%20nights%20in%20paradise", "w": 1080, "h": 1350 },
+  { "name": "4-square.jpg", "query": "?shot=square&layout=comic&caption=NEON%20COAST&sub=Six%20nights%20in%20paradise", "w": 1080, "h": 1080 }
 ]

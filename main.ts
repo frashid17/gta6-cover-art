@@ -1,5 +1,5 @@
 // GTA 6 Cover Art hand-in entrypoint (Node 22, standard library only).
-// Copies app/ and screenshots/ to the hand-in directory and generates dossier.json.
+// Copies app/ + screenshots/ into the hand-in dir and writes dossier.json for scoring.
 
 import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';

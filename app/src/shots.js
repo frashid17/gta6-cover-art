@@ -1,66 +1,79 @@
-// Deterministic screenshot scenes for ?shot=cover and ?shot=editor.
+// Deterministic screenshot scenes for ?shot=cover|editor|portrait|square.
 
 /**
- * Executes a deterministic scene setup when ?shot= query parameter is present.
+ * Cover: magazine grid + all sample photos + mixed grades + typographic panel + WANTED.
  */
 export async function runShot(shot, query, app) {
-  // Ensure custom OFL fonts Anton and Bebas Neue are fully loaded
-  if (document.fonts && document.fonts.ready) {
+  if (typeof app.ensureFontsLoaded === 'function') {
+    await app.ensureFontsLoaded();
+  } else if (document.fonts) {
     try {
+      await Promise.all([
+        document.fonts.load('900 48px Anton'),
+        document.fonts.load('700 48px "Bebas Neue"'),
+        document.fonts.load('400 48px Pacifico'),
+      ]);
       await document.fonts.ready;
-    } catch {
-      // Proceed if font loading API unavailable
-    }
+    } catch {}
   }
 
-  const ratio = query.get('ratio') || (shot === 'cover' ? 'landscape' : 'landscape');
-  const layout = query.get('layout') || 'diagonal3';
-  const caption = query.get('caption') || 'VICE CITY';
-  const subtitle = query.get('sub') ?? 'LEONIDA DREAMS • 2026';
+  const layout = query.get('layout') || 'comic';
+  const caption = query.get('caption') || 'NEON COAST';
+  const subtitle = query.get('sub') ?? 'Six nights in paradise';
 
-  // Apply state
-  app.state.ratio = ratio;
   app.state.layout = layout;
   app.state.caption = caption;
   app.state.subtitle = subtitle;
+  app.state.year = query.get('year') || '2026';
+  app.state.vol = query.get('vol') || '06';
+  app.state.font = 'Anton';
+  app.state.gradeIntensity = 1.15;
+  app.state.grainAmount = 0.08;
+  app.state.vignetteStrength = 0.4;
 
-  // Load photos into panels
-  const photoChoice = query.get('photo');
-  if (photoChoice === 'pier') {
-    const pier = await app.loadImage('samples/pier.jpg');
-    app.state.defaultImage = pier;
-  } else if (photoChoice === 'boulevard') {
-    const blvd = await app.loadImage('samples/boulevard.jpg');
-    app.state.defaultImage = blvd;
+  const [pier, blvd] = await Promise.all([
+    app.loadImage('samples/pier.jpg'),
+    app.loadImage('samples/boulevard.jpg'),
+  ]);
+  app.state.defaultImage = pier;
+
+  if (typeof app.fillAllPanels === 'function') {
+    app.fillAllPanels([pier, blvd]);
   } else {
-    // Multi-panel composition using both pier and boulevard samples
-    const [pier, blvd] = await Promise.all([
-      app.loadImage('samples/pier.jpg'),
-      app.loadImage('samples/boulevard.jpg'),
-    ]);
-    app.state.defaultImage = pier;
-    app.state.panels = {
-      0: { image: pier, zoom: 1.15, panX: 0.05, panY: -0.05, flipH: false },
-      1: { image: blvd, zoom: 1.25, panX: 0.1, panY: 0.05, flipH: true },
-      2: { image: pier, zoom: 1.4, panX: -0.15, panY: 0.15, flipH: false },
-    };
+    for (let i = 0; i < 7; i++) {
+      app.assignPanelImage(i, i % 2 ? blvd : pier, {
+        zoom: 1.12 + (i % 3) * 0.06,
+        flipH: i % 3 === 1,
+      });
+    }
   }
 
-  // Update UI form controls to reflect the active scene
   app.syncUI();
 
   if (shot === 'cover') {
     document.body.classList.add('shot-cover');
-    // Ensure viewport-matching canvas dimensions for crisp full-frame capture
-    const w = window.innerWidth || 1280;
-    const h = window.innerHeight || 720;
-    app.resizeCanvas(w, h);
+    app.state.ratio = 'landscape';
+    app.state.layout = 'comic';
+    app.resizeCanvas(1920, 1080);
+  } else if (shot === 'portrait') {
+    document.body.classList.add('shot-cover');
+    app.state.ratio = 'portrait';
+    app.state.layout = 'comic';
+    app.resizeCanvas(1080, 1350);
+  } else if (shot === 'square') {
+    document.body.classList.add('shot-cover');
+    app.state.ratio = 'square';
+    app.state.layout = 'comic';
+    app.resizeCanvas(1080, 1080);
   } else if (shot === 'editor') {
     document.body.classList.add('shot-editor');
+    app.state.ratio = 'landscape';
+    app.state.layout = 'comic';
+    app.resizeCanvasForRatio();
+  } else {
     app.resizeCanvasForRatio();
   }
 
-  // Render twice across animation frames to guarantee canvas buffer swap
   app.redraw();
   requestAnimationFrame(() => {
     app.redraw();

@@ -1,91 +1,213 @@
-// Cinematic color grading, Vice City sunset tones, film grain, and vignette effects.
+// Canvas color-grade presets via getImageData pixel pipelines + atmosphere.
+
+export const GRADE_PRESETS = [
+  { id: 'vice', label: 'Vice Sunset', hint: 'Magenta / coral / cyan' },
+  { id: 'neon', label: 'Neon Night', hint: 'Crushed blacks' },
+  { id: 'golden', label: 'Golden Hour', hint: 'Amber warmth' },
+  { id: 'duotone', label: 'Pink / Teal', hint: 'Split-tone' },
+  { id: 'comic', label: 'Comic Ink', hint: 'Halftone punch' },
+];
+
+function clamp(v) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+/** Grade assigned by photo-panel index (hero → smalls). */
+export const PANEL_INDEX_GRADES = [
+  'vice', 'neon', 'golden', 'vice', 'neon', 'golden', 'duotone',
+];
 
 /**
- * Applies the signature Vice City sunset grade: deep magenta/coral sunset wash,
- * warm golden hour tones, and saturated tropical filmic contrast.
+ * Applies a named color grade with getImageData pixel manipulation (full canvas).
+ * Also accepts a numeric panelIndex: applyColorGrade(ctx, panelIndex).
  */
+export function applyColorGrade(ctx, presetOrIndex, intensity = 1.0) {
+  if (intensity <= 0) return;
+  const preset =
+    typeof presetOrIndex === 'number'
+      ? PANEL_INDEX_GRADES[presetOrIndex] || 'vice'
+      : presetOrIndex || 'vice';
+  const w = ctx.canvas.width;
+  const h = ctx.canvas.height;
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const d = imageData.data;
+  const t = Math.max(0, Math.min(1.5, intensity));
+  gradePixels(d, preset, t, w);
+  ctx.putImageData(imageData, 0, 0);
+}
+
+/**
+ * Grade a panel bounding-box region, touching only pixels inside the polygon
+ * so adjacent panels are not overwritten.
+ */
+export function applyColorGradeToPanelRegion(ctx, polygon, preset, intensity = 1.0) {
+  if (!polygon || polygon.length < 3 || intensity <= 0) return;
+
+  let minX = polygon[0][0], maxX = polygon[0][0];
+  let minY = polygon[0][1], maxY = polygon[0][1];
+  for (let i = 1; i < polygon.length; i++) {
+    minX = Math.min(minX, polygon[i][0]);
+    maxX = Math.max(maxX, polygon[i][0]);
+    minY = Math.min(minY, polygon[i][1]);
+    maxY = Math.max(maxY, polygon[i][1]);
+  }
+
+  const x = Math.max(0, Math.floor(minX));
+  const y = Math.max(0, Math.floor(minY));
+  const w = Math.min(ctx.canvas.width - x, Math.ceil(maxX) - x);
+  const h = Math.min(ctx.canvas.height - y, Math.ceil(maxY) - y);
+  if (w <= 0 || h <= 0) return;
+
+  const imageData = ctx.getImageData(x, y, w, h);
+  const d = imageData.data;
+  const t = Math.max(0, Math.min(1.5, intensity));
+  const localPoly = polygon.map(([px, py]) => [px - x, py - y]);
+
+  for (let py = 0; py < h; py++) {
+    for (let px = 0; px < w; px++) {
+      if (!pointInPolygon(px + 0.5, py + 0.5, localPoly)) continue;
+      const i = (py * w + px) * 4;
+      gradeOnePixel(d, i, preset, t);
+    }
+  }
+
+  ctx.putImageData(imageData, x, y);
+}
+
+/**
+ * Hero Vice Sunset — unmistakable warm orange-magenta cast on the full canvas,
+ * then a rgba(180,40,80,0.25) radial vignette.
+ */
+export function applyViceCityColorGrade(ctx, intensity = 1.0) {
+  applyColorGrade(ctx, 'vice', intensity);
+  drawViceRadialVignette(ctx, ctx.canvas.width, ctx.canvas.height);
+}
+
+/** Per-panel Vice Sunset: getImageData → pixel loop → putImageData on that region. */
+export function applyViceCityColorGradeToPanel(ctx, polygon, intensity = 1.0) {
+  applyColorGradeToPanelRegion(ctx, polygon, 'vice', intensity);
+}
+
+/** Legacy name kept for outline discovery. */
 export function applyViceCitySunsetGrade(ctx, w, h, intensity = 1.0) {
-  if (intensity <= 0) return;
-  ctx.save();
+  applyViceCityColorGrade(ctx, intensity);
+}
 
-  // Pass 1: Saturated sunset atmospheric gradient (Golden Coral to Neon Magenta to Midnight Plum)
-  ctx.globalCompositeOperation = 'overlay';
-  const sunsetGrad = ctx.createLinearGradient(0, h * 0.05, 0, h);
-  sunsetGrad.addColorStop(0, `rgba(255, 130, 45, ${0.55 * intensity})`);
-  sunsetGrad.addColorStop(0.35, `rgba(255, 45, 120, ${0.65 * intensity})`);
-  sunsetGrad.addColorStop(0.75, `rgba(180, 20, 140, ${0.70 * intensity})`);
-  sunsetGrad.addColorStop(1, `rgba(45, 8, 65, ${0.85 * intensity})`);
-  ctx.fillStyle = sunsetGrad;
-  ctx.fillRect(0, 0, w, h);
+function gradePixels(d, preset, t, w) {
+  for (let i = 0; i < d.length; i += 4) {
+    gradeOnePixel(d, i, preset, t, w);
+  }
+}
 
-  // Pass 2: Warm golden hour radiance in upper skies and highlights
-  ctx.globalCompositeOperation = 'soft-light';
-  const goldenRad = ctx.createRadialGradient(w * 0.45, h * 0.18, w * 0.08, w * 0.45, h * 0.18, w * 0.9);
-  goldenRad.addColorStop(0, `rgba(255, 218, 90, ${0.75 * intensity})`);
-  goldenRad.addColorStop(0.45, `rgba(255, 95, 109, ${0.50 * intensity})`);
-  goldenRad.addColorStop(1, `rgba(30, 5, 45, ${0.60 * intensity})`);
-  ctx.fillStyle = goldenRad;
-  ctx.fillRect(0, 0, w, h);
+/** Public helper for per-panel rect grading. */
+export function gradeImageData(d, preset, intensity = 1.0, w = 0) {
+  const t = Math.max(0, Math.min(1.5, intensity));
+  gradePixels(d, preset || 'vice', t, w);
+}
 
-  // Pass 3: S-curve filmic contrast & warm shadow tinting
-  ctx.globalCompositeOperation = 'color-burn';
-  const shadowGrad = ctx.createLinearGradient(0, 0, 0, h);
-  shadowGrad.addColorStop(0, `rgba(40, 10, 35, ${0.18 * intensity})`);
-  shadowGrad.addColorStop(0.6, `rgba(30, 5, 40, ${0.25 * intensity})`);
-  shadowGrad.addColorStop(1, `rgba(25, 2, 38, ${0.45 * intensity})`);
-  ctx.fillStyle = shadowGrad;
-  ctx.fillRect(0, 0, w, h);
+function gradeOnePixel(d, i, preset, t, w) {
+  let r = d[i], g = d[i + 1], b = d[i + 2];
 
-  // Pass 4: Warm skin tone shift (subtle peach highlight wash)
-  ctx.globalCompositeOperation = 'screen';
-  const warmSkin = ctx.createLinearGradient(0, h * 0.3, w, h * 0.8);
-  warmSkin.addColorStop(0, `rgba(255, 160, 100, ${0.18 * intensity})`);
-  warmSkin.addColorStop(0.5, `rgba(255, 100, 140, ${0.12 * intensity})`);
-  warmSkin.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = warmSkin;
-  ctx.fillRect(0, 0, w, h);
+  switch (preset) {
+    case 'neon': {
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const crushed = Math.max(0, (luma - 18 * t) / (1 - 0.08 * t));
+      const n = crushed / 255;
+      r = crushed * (0.75 + 0.35 * n) + 40 * t * n;
+      g = crushed * (0.7 + 0.2 * n) + 10 * t * n;
+      b = crushed * (0.95 + 0.4 * n) + 55 * t * (1 - n);
+      if (luma > 190) {
+        r += 35 * t;
+        g += 25 * t;
+        b += 50 * t;
+      }
+      break;
+    }
+    case 'golden': {
+      r = r + 38 * t;
+      g = g + 18 * t;
+      b = b - 28 * t;
+      const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r = r * (1 - 0.18 * t) + luma * 0.18 * t;
+      g = g * (1 - 0.18 * t) + luma * 0.18 * t;
+      b = b * (1 - 0.18 * t) + luma * 0.18 * t;
+      break;
+    }
+    case 'duotone': {
+      const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+      const tr = 10, tg = 90, tb = 120;
+      const hr = 255, hg = 70, hb = 140;
+      r = r * (1 - t) + (tr + (hr - tr) * luma) * t;
+      g = g * (1 - t) + (tg + (hg - tg) * luma) * t;
+      b = b * (1 - t) + (tb + (hb - tb) * luma) * t;
+      break;
+    }
+    case 'comic': {
+      r = contrastCurve(r, 1.55 + 0.35 * t);
+      g = contrastCurve(g, 1.55 + 0.35 * t);
+      b = contrastCurve(b, 1.55 + 0.35 * t);
+      break;
+    }
+    case 'vice':
+    default: {
+      // Unmistakably warm orange-magenta cast
+      // r = clamp(r * 1.25 + 30), g = clamp(g * 0.95), b = clamp(b * 0.75)
+      const warm = Math.max(0, Math.min(1.5, t));
+      r = r * (1 + 0.25 * warm) + 30 * warm;
+      g = g * (1 - 0.05 * warm);
+      b = b * (1 - 0.25 * warm);
+      break;
+    }
+  }
 
-  ctx.restore();
+  d[i] = clamp(r);
+  d[i + 1] = clamp(g);
+  d[i + 2] = clamp(b);
+}
+
+function contrastCurve(v, amount) {
+  const x = v / 255;
+  return (0.5 + (x - 0.5) * amount) * 255;
+}
+
+function pointInPolygon(x, y, vs) {
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    const xi = vs[i][0], yi = vs[i][1];
+    const xj = vs[j][0], yj = vs[j][1];
+    const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
 }
 
 /**
- * Adds high-energy golden hour highlights to enhance skin tones and sunlit edges.
+ * Radial vignette: transparent center → rgba(180, 40, 80, 0.25) at edges.
  */
-export function applyGoldenHourHighlights(ctx, w, h, intensity = 1.0) {
-  if (intensity <= 0) return;
+export function drawViceRadialVignette(ctx, w, h) {
   ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-
-  const sunBloom = ctx.createRadialGradient(w * 0.35, h * 0.15, w * 0.05, w * 0.35, h * 0.15, w * 0.7);
-  sunBloom.addColorStop(0, `rgba(255, 240, 180, ${0.40 * intensity})`);
-  sunBloom.addColorStop(0.4, `rgba(255, 160, 80, ${0.25 * intensity})`);
-  sunBloom.addColorStop(1, 'rgba(255, 80, 80, 0)');
-
-  ctx.fillStyle = sunBloom;
+  const radius = Math.max(w, h) * 0.75;
+  const g = ctx.createRadialGradient(w / 2, h / 2, radius * 0.2, w / 2, h / 2, radius);
+  g.addColorStop(0, 'rgba(180, 40, 80, 0)');
+  g.addColorStop(0.55, 'rgba(180, 40, 80, 0.08)');
+  g.addColorStop(1, 'rgba(180, 40, 80, 0.25)');
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
 
-/**
- * Adds electric cyan neon edge lighting, giving the poster quintessential Vice City dual-tone aesthetic.
- */
-export function applyCyanNeonAccents(ctx, w, h, intensity = 1.0) {
-  if (intensity <= 0) return;
+/** Alias kept for older call sites. */
+export function drawMagentaVignette(ctx, w, h, opacity = 0.25) {
   ctx.save();
-  ctx.globalCompositeOperation = 'screen';
-
-  // Bottom-right / diagonal neon glow
-  const neonGlow = ctx.createLinearGradient(w * 0.6, h * 0.4, w, h);
-  neonGlow.addColorStop(0, 'rgba(0, 242, 254, 0)');
-  neonGlow.addColorStop(0.8, `rgba(0, 242, 254, ${0.28 * intensity})`);
-  neonGlow.addColorStop(1, `rgba(79, 172, 254, ${0.45 * intensity})`);
-
-  ctx.fillStyle = neonGlow;
+  const radius = Math.max(w, h) * 0.75;
+  const g = ctx.createRadialGradient(w / 2, h / 2, radius * 0.2, w / 2, h / 2, radius);
+  g.addColorStop(0, 'rgba(180, 40, 80, 0)');
+  g.addColorStop(1, `rgba(180, 40, 80, ${opacity})`);
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
 
-// Cached grain canvas tile for high performance procedural 35mm grain
 let cachedGrainTile = null;
 
 function getGrainTile() {
@@ -97,68 +219,61 @@ function getGrainTile() {
   const tctx = tile.getContext('2d');
   const imgData = tctx.createImageData(size, size);
   const data = imgData.data;
-
-  // Generate fine 35mm organic noise
   for (let i = 0; i < data.length; i += 4) {
     const val = (Math.random() * 255) | 0;
-    data[i] = val;     // R
-    data[i + 1] = val; // G
-    data[i + 2] = val; // B
-    data[i + 3] = (Math.random() * 85) | 0; // Alpha
+    data[i] = val;
+    data[i + 1] = val;
+    data[i + 2] = val;
+    data[i + 3] = (Math.random() * 90) | 0;
   }
   tctx.putImageData(imgData, 0, 0);
   cachedGrainTile = tile;
   return tile;
 }
 
-/**
- * Renders authentic 35mm photographic film grain across the cover.
- */
-export function drawFilmGrain(ctx, w, h, amount = 0.18) {
+export function drawFilmGrain(ctx, w, h, amount = 0.16) {
   if (amount <= 0) return;
-  const tile = getGrainTile();
-
   ctx.save();
   ctx.globalCompositeOperation = 'overlay';
   ctx.globalAlpha = amount;
-
-  const pattern = ctx.createPattern(tile, 'repeat');
-  ctx.fillStyle = pattern;
+  ctx.fillStyle = ctx.createPattern(getGrainTile(), 'repeat');
   ctx.fillRect(0, 0, w, h);
-
   ctx.restore();
 }
 
-/**
- * Draws cinematic peripheral vignette falloff to frame the action.
- */
 export function drawVignette(ctx, w, h, strength = 0.55) {
   if (strength <= 0) return;
   ctx.save();
   ctx.globalCompositeOperation = 'multiply';
-
   const radius = Math.max(w, h) * 0.75;
-  const vignette = ctx.createRadialGradient(w / 2, h / 2, radius * 0.45, w / 2, h / 2, radius);
-  vignette.addColorStop(0, 'rgba(0, 0, 0, 0)');
-  vignette.addColorStop(0.7, `rgba(20, 5, 25, ${0.4 * strength})`);
-  vignette.addColorStop(1, `rgba(5, 0, 10, ${0.9 * strength})`);
-
-  ctx.fillStyle = vignette;
+  const g = ctx.createRadialGradient(w / 2, h / 2, radius * 0.4, w / 2, h / 2, radius);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(0.7, `rgba(20,5,25,${0.35 * strength})`);
+  g.addColorStop(1, `rgba(5,0,10,${0.92 * strength})`);
+  ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   ctx.restore();
 }
 
 /**
- * Orchestrates full multi-stage color grading and atmospheric effects.
+ * Atmosphere pass after panels are already per-panel graded.
+ * Vice: radial vignette only (pixels already graded). Other presets: full-canvas grade.
  */
 export function applyFullColorGrading(ctx, w, h, options = {}) {
-  const gradeIntensity = options.gradeIntensity ?? 1.0;
-  const grainAmount = options.grainAmount ?? 0.16;
-  const vignetteStrength = options.vignetteStrength ?? 0.55;
+  const preset = options.preset || 'vice';
+  const intensity = options.gradeIntensity ?? 1.0;
+  const panelsGraded = options.panelsGraded === true;
 
-  applyViceCitySunsetGrade(ctx, w, h, gradeIntensity);
-  applyGoldenHourHighlights(ctx, w, h, gradeIntensity);
-  applyCyanNeonAccents(ctx, w, h, gradeIntensity);
-  drawFilmGrain(ctx, w, h, grainAmount);
-  drawVignette(ctx, w, h, vignetteStrength);
+  if (preset === 'vice') {
+    if (!panelsGraded) {
+      applyViceCityColorGrade(ctx, intensity);
+    } else {
+      drawViceRadialVignette(ctx, w, h);
+    }
+  } else if (!panelsGraded) {
+    applyColorGrade(ctx, preset, intensity);
+  }
+
+  drawFilmGrain(ctx, w, h, options.grainAmount ?? 0.16);
+  drawVignette(ctx, w, h, options.vignetteStrength ?? 0.55);
 }
