@@ -1,8 +1,7 @@
 // GTA 6 Cover Art hand-in entrypoint (Node 22, standard library only).
 // Copies app/ + screenshots/ into the hand-in dir and writes dossier.json for scoring.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, writeFileSync, readdirSync, statSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-app.ts';
@@ -34,16 +33,35 @@ if (existsSync(join(out, 'screenshots'))) {
     if (sz > 262144) {
       throw new Error(`Screenshot ${img} exceeds 256 KiB limit: ${sz} bytes`);
     }
-    // Pixel dimension check
-
-    const dims = execSync(`sips -g pixelWidth -g pixelHeight "${imgPath}"`).toString();
-    const wMatch = dims.match(/pixelWidth: (\d+)/);
-    const hMatch = dims.match(/pixelHeight: (\d+)/);
-    if (!wMatch || !hMatch) {
-      throw new Error(`Unable to get dimensions for ${img}`);
+    // Pixel dimension check (Node.js only, no external binaries)
+    const buffer = readFileSync(imgPath);
+    function getDimensions(buf) {
+      // PNG detection
+      if (buf.slice(0, 8).equals(Buffer.from([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]))) {
+        // IHDR chunk starts at byte 8
+        const ihdrOffset = 8 + 4 + 4; // length (4) + type (4) = after length and type
+        const width = buf.readUInt32BE(ihdrOffset);
+        const height = buf.readUInt32BE(ihdrOffset + 4);
+        return {width, height};
+      }
+      // JPEG detection
+      if (buf[0] === 0xFF && buf[1] === 0xD8) {
+        let offset = 2;
+        while (offset < buf.length) {
+          if (buf[offset] !== 0xFF) break;
+          const marker = buf[offset + 1];
+          const length = buf.readUInt16BE(offset + 2);
+          if (marker === 0xC0 || marker === 0xC2) { // SOF0 or SOF2
+            const height = buf.readUInt16BE(offset + 5);
+            const width = buf.readUInt16BE(offset + 7);
+            return {width, height};
+          }
+          offset += 2 + length;
+        }
+      }
+      throw new Error('Unsupported image format or missing dimensions');
     }
-    const width = parseInt(wMatch[1], 10);
-    const height = parseInt(hMatch[1], 10);
+    const {width, height} = getDimensions(buffer);
     const longSide = Math.max(width, height);
     const shortSide = Math.min(width, height);
     if (longSide > 1280 || shortSide < 480) {
