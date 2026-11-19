@@ -3,21 +3,148 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cover Snap</title>
+<title>Vice City Studio - GTA 6 Cover Art</title>
 <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-<main class="app">
-  <section class="controls">
-    <h1>Cover Snap</h1>
-    <p>A photo and a caption, made into a square cover.</p>
-    <label>Photo <input id="photo" type="file" accept="image/*"></label>
-    <label>Caption <input id="caption" type="text" maxlength="40" value="Sunset Heist"></label>
-    <button id="export" type="button">Export PNG 1080 x 1080</button>
-    <p id="status" role="status"></p>
-  </section>
-  <canvas id="cover" width="1080" height="1080" aria-label="The cover"></canvas>
-</main>
+<div class="app-container">
+  <aside class="sidebar">
+    <header class="sidebar-header">
+      <div class="brand-title">
+        VICE STUDIO
+        <span class="brand-tag">GTA VI ART</span>
+      </div>
+      <p class="brand-desc">Multi-panel poster art with Vice City sunset grade.</p>
+    </header>
+
+    <div class="sidebar-content">
+      <!-- Layout & Format -->
+      <section class="control-group">
+        <h2 class="group-title">Composition & Layout</h2>
+        <div class="form-row">
+          <label for="layout-select">Panel Structure</label>
+          <select id="layout-select">
+            <option value="diagonal3" selected>Diagonal Trio (GTA Poster)</option>
+            <option value="diagonal2">Diagonal Split (2 Panels)</option>
+            <option value="triptych">Triptych Columns (3 Panels)</option>
+            <option value="duohorizon">Cinematic Horizon Split</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="ratio-select">Canvas Aspect Ratio</label>
+          <select id="ratio-select">
+            <option value="landscape" selected>1920 × 1080 (Landscape Banner)</option>
+            <option value="portrait">1080 × 1350 (Portrait Poster 4:5)</option>
+            <option value="square">1080 × 1080 (Square Cover 1:1)</option>
+          </select>
+        </div>
+        <div class="form-row inline">
+          <label for="active-panel">Active Panel</label>
+          <select id="active-panel" style="width: 140px;">
+            <option value="0">Panel 1 (Hero)</option>
+            <option value="1">Panel 2</option>
+            <option value="2">Panel 3</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="zoom-slider">Panel Zoom</label>
+          <input id="zoom-slider" type="range" min="0.5" max="3.0" step="0.05" value="1.0">
+        </div>
+        <button id="flip-btn" type="button" class="btn-sample">Flip Panel Horizontal</button>
+      </section>
+
+      <!-- Photos & Samples -->
+      <section class="control-group">
+        <h2 class="group-title">Photos & Samples</h2>
+        <div class="btn-row">
+          <button type="button" class="btn-sample" data-sample="pier">Pier</button>
+          <button type="button" class="btn-sample" data-sample="boulevard">Boulevard</button>
+          <button type="button" class="btn-sample" data-sample="mix">Vice Mix</button>
+        </div>
+        <div class="file-input-wrapper">
+          <button type="button" class="btn-upload">+ Upload Your Photo</button>
+          <input id="photo" type="file" accept="image/*" aria-label="Upload photo">
+        </div>
+      </section>
+
+      <!-- Typography -->
+      <section class="control-group">
+        <h2 class="group-title">Poster Typography</h2>
+        <div class="form-row">
+          <label for="caption">Main Title</label>
+          <input id="caption" type="text" maxlength="32" value="VICE CITY">
+        </div>
+        <div class="form-row">
+          <label for="subtitle">Subtitle / Chapter Tag</label>
+          <input id="subtitle" type="text" maxlength="40" value="LEONIDA DREAMS • 2026">
+        </div>
+        <div class="form-row inline">
+          <div style="flex: 1; margin-right: 8px;">
+            <label for="font-select">Display Font</label>
+            <select id="font-select">
+              <option value="Anton" selected>Anton (Condensed)</option>
+              <option value="Bebas Neue">Bebas Neue</option>
+            </select>
+          </div>
+          <div style="flex: 1;">
+            <label for="fill-select">Text Style</label>
+            <select id="fill-select">
+              <option value="sunset" selected>Sunset Gradient</option>
+              <option value="white">Stark White</option>
+              <option value="neon">Cyan Neon</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Grade & Atmosphere -->
+      <section class="control-group">
+        <h2 class="group-title">Vice City Atmosphere</h2>
+        <div class="form-row">
+          <label for="grade-slider">Sunset Color Grade</label>
+          <input id="grade-slider" type="range" min="0" max="1.5" step="0.05" value="1.0">
+        </div>
+        <div class="form-row">
+          <label for="grain-slider">35mm Film Grain</label>
+          <input id="grain-slider" type="range" min="0" max="0.4" step="0.02" value="0.16">
+        </div>
+        <div class="form-row">
+          <label for="vignette-slider">Cinematic Vignette</label>
+          <input id="vignette-slider" type="range" min="0" max="1.0" step="0.05" value="0.55">
+        </div>
+      </section>
+
+      <!-- Export -->
+      <section class="control-group export-card">
+        <h2 class="group-title">Export Cover Art</h2>
+        <button type="button" class="btn-export" data-export="landscape">
+          Export 1920 × 1080 PNG
+        </button>
+        <div class="btn-row">
+          <button type="button" class="btn-export secondary" data-export="portrait" style="flex: 1;">
+            1080 × 1350 PNG
+          </button>
+          <button type="button" class="btn-export secondary" data-export="square" style="flex: 1;">
+            1080 × 1080 PNG
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="status-bar">
+      <span id="status" role="status">Ready</span>
+    </footer>
+  </aside>
+
+  <!-- Interactive Canvas Stage -->
+  <main class="stage">
+    <div class="canvas-wrapper">
+      <canvas id="cover" width="1920" height="1080" aria-label="GTA 6-Style Cover Art Canvas"></canvas>
+    </div>
+    <div class="stage-hint">Tip: Drag on canvas to reposition photo | Scroll to zoom</div>
+  </main>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

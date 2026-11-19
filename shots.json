@@ -1,5 +1,6 @@
 [
-  { "name": "1-cover.jpg", "query": "?shot=cover&photo=pier&caption=Sunset%20Heist", "w": 1080, "h": 1080 },
-  { "name": "2-editor.jpg", "query": "?shot=editor&photo=boulevard&caption=Boulevard%20Queen", "w": 1280, "h": 720 },
-  { "name": "3-cover.jpg", "query": "?shot=cover&photo=boulevard&caption=Boulevard%20Queen", "w": 1080, "h": 1080 }
+  { "name": "1-cover.jpg", "query": "?shot=cover&ratio=landscape&layout=diagonal3&caption=VICE%20CITY&sub=LEONIDA%20DREAMS%20%E2%80%A2%202026", "w": 1280, "h": 720 },
+  { "name": "2-editor.jpg", "query": "?shot=editor&ratio=landscape&layout=diagonal3&caption=VICE%20CITY&sub=LEONIDA%20DREAMS%20%E2%80%A2%202026", "w": 1280, "h": 720 },
+  { "name": "3-portrait.jpg", "query": "?shot=cover&ratio=portrait&layout=diagonal2&caption=LEONIDA%20SUNSET&sub=OCEAN%20DRIVE", "w": 800, "h": 1000 },
+  { "name": "4-square.jpg", "query": "?shot=cover&ratio=square&layout=triptych&caption=PORT%20VICE&sub=SUNSET%20HEIST", "w": 800, "h": 800 }
 ]
